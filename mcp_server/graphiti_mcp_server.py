@@ -27,6 +27,7 @@ from graphiti_core.llm_client import LLMClient
 from graphiti_core.llm_client.azure_openai_client import AzureOpenAILLMClient
 from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.llm_client.openai_client import OpenAIClient
+from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.nodes import EpisodeType, EpisodicNode
 from graphiti_core.search.search_config_recipes import (
     NODE_HYBRID_SEARCH_NODE_DISTANCE,
@@ -193,6 +194,7 @@ class GraphitiLLMConfig(BaseModel):
     """
 
     api_key: str | None = None
+    base_url: str | None = None
     model: str = DEFAULT_LLM_MODEL
     small_model: str = SMALL_LLM_MODEL
     temperature: float = 0.0
@@ -218,6 +220,7 @@ class GraphitiLLMConfig(BaseModel):
         azure_openai_use_managed_identity = (
             os.environ.get('AZURE_OPENAI_USE_MANAGED_IDENTITY', 'false').lower() == 'true'
         )
+        base_url = os.environ.get('OPENAI_API_BASE_URL', None)
 
         if azure_openai_endpoint is None:
             # Setup for OpenAI API
@@ -233,6 +236,7 @@ class GraphitiLLMConfig(BaseModel):
 
             return cls(
                 api_key=os.environ.get('OPENAI_API_KEY'),
+                base_url=base_url,
                 model=model,
                 small_model=small_model,
                 temperature=float(os.environ.get('LLM_TEMPERATURE', '0.0')),
@@ -337,11 +341,18 @@ class GraphitiLLMConfig(BaseModel):
             raise ValueError('OPENAI_API_KEY must be set when using OpenAI API')
 
         llm_client_config = LLMConfig(
-            api_key=self.api_key, model=self.model, small_model=self.small_model
+            api_key=self.api_key,
+            base_url=self.base_url,
+            model=self.model,
+            small_model=self.small_model,
         )
 
         # Set temperature
         llm_client_config.temperature = self.temperature
+
+        # If a base_url is provided, use the generic client
+        if self.base_url:
+            return OpenAIGenericClient(config=llm_client_config)
 
         return OpenAIClient(config=llm_client_config)
 
@@ -1200,11 +1211,21 @@ async def initialize_server() -> MCPConfig:
         default=os.environ.get('MCP_SERVER_HOST'),
         help='Host to bind the MCP server to (default: MCP_SERVER_HOST environment variable)',
     )
+    # Add base_url to CLI arguments
+    parser.add_argument(
+        '--base-url',
+        default=os.environ.get('OPENAI_API_BASE_URL'),
+        help='Host to bind the MCP server to (default: OPENAI_API_BASE_URL environment variable)',
+    )
 
     args = parser.parse_args()
 
     # Build configuration from CLI arguments and environment variables
     config = GraphitiConfig.from_cli_and_env(args)
+
+    # Update the llm_config with the base_url from CLI if provided
+    if args.base_url:
+        config.llm.base_url = args.base_url
 
     # Log the group ID configuration
     if args.group_id:
