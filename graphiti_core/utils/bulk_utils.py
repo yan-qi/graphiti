@@ -127,7 +127,7 @@ async def add_nodes_and_edges_bulk_tx(
             'name': node.name,
             'name_embedding': node.name_embedding,
             'group_id': node.group_id,
-            'summary': node.summary,
+            'summary': str(node.summary) if node.summary else None,
             'created_at': node.created_at,
         }
 
